@@ -1,5 +1,7 @@
 #include "TCPListener.h"
 #include <arpa/inet.h>
+#include <memory>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <system_error>
@@ -11,39 +13,57 @@ TCPListener::TCPListener(UniqueFD ufd) : _ufd(std::move(ufd)) {}
 
 void TCPListener::Open(std::string address, uint16_t port)
 {
-
     _address = address;
     _port = port;
-    _ufd.Reset(socket(AF_INET, SOCK_STREAM, 0));
-    if (!_ufd.IsValid())
+
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;     // IPv4 или IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP
+    hints.ai_protocol = IPPROTO_TCP;
+
+    addrinfo* result = nullptr;
+    const std::string portStr = std::to_string(_port);
+
+    const int gaiResult = getaddrinfo(address.c_str(), portStr.c_str(), &hints, &result);
+
+    if (gaiResult != 0)
     {
-        throw std::system_error(errno, std::generic_category(), "socket failed");
+        throw std::runtime_error(std::string("getaddrinfo failed: ") + gai_strerror(gaiResult));
     }
 
-    int opt = 1;
-    if (setsockopt(_ufd.Get(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1)
+    std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> addrList(result, freeaddrinfo);
+    std::error_code lastError;
+    for (addrinfo* addr = addrList.get(); addr != nullptr; addr = addr->ai_next)
     {
-        throw std::system_error(errno, std::generic_category(), "setsockopt SO_REUSEADDR failed");
-    }
+        _ufd.Reset(socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol));
+        if (!_ufd.IsValid())
+        {
+            lastError = std::error_code(errno, std::generic_category());
+            continue;
+        }
 
-    sockaddr_in server_addr{};
-    server_addr.sin_family = AF_INET;
+        int opt = 1;
+        if (setsockopt(_ufd.Get(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1)
+        {
+            lastError = std::error_code(errno, std::generic_category());
+            continue;
+        }
 
-    server_addr.sin_port = htons(_port);
-    if (inet_pton(AF_INET, address.c_str(), &server_addr.sin_addr) != 1)
-    {
-        throw std::invalid_argument("invalid IPv4 address");
-    }
+        if (bind(_ufd.Get(), addr->ai_addr, addr->ai_addrlen) == -1)
+        {
+            lastError = std::error_code(errno, std::generic_category());
+            continue;
+        }
 
-    if (bind(_ufd.Get(), reinterpret_cast<const sockaddr*>(&server_addr), sizeof(server_addr)) == -1)
-    {
-        throw std::system_error(errno, std::generic_category(), "bind failed");
-    }
+        if (listen(_ufd.Get(), K_BACKLOG) == -1)
+        {
+            lastError = std::error_code(errno, std::generic_category());
+            continue;
+        }
 
-    if (listen(_ufd.Get(), K_BACKLOG) == -1)
-    {
-        throw std::system_error(errno, std::generic_category(), "listen failed");
+        return;
     }
+    throw std::system_error(lastError, "listen failed");
 }
 
 TCPListener::AcceptResult TCPListener::Accept()
