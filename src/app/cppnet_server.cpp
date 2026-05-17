@@ -13,14 +13,14 @@ class ChatHandler : public ITCPServerHandler
   public:
     void OnConnect(TCPServer& server, TCPConnection::ID id) override
     {
-        auto message = "Client " + std::to_string(id) + "connected ";
+        auto message = "[System] Client " + std::to_string(id) + " connected";
         std::cout << message << '\n';
         server.BroadcastAll(message);
     }
 
     void OnDisconnect(TCPServer& server, TCPConnection::ID id) override
     {
-        auto message = "Client " + std::to_string(id) + "disconnected";
+        auto message = "[System] Client " + std::to_string(id) + " disconnected";
         std::cout << message << '\n';
         server.BroadcastAll(message);
     }

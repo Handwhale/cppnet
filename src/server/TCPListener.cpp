@@ -73,7 +73,7 @@ TCPListener::AcceptResult TCPListener::Accept()
         return AcceptResult{Socket(UniqueFD()), 0};
     }
 
-    sockaddr_in client_addr{};
+    sockaddr_storage client_addr{};
     socklen_t client_addr_size = sizeof(client_addr);
     auto socket = Socket(UniqueFD(accept(_ufd.Get(), reinterpret_cast<sockaddr*>(&client_addr), &client_addr_size)));
     if (!socket.IsValid())

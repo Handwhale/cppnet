@@ -90,7 +90,7 @@ void TCPServer::AcceptLoop()
             }
 
             std::cerr << "[System] Error: accept failed";
-            _running.store(true);
+            _running.store(false);
             break;
         }
 
@@ -135,7 +135,7 @@ void TCPServer::RemoveLoop()
         std::vector<std::unique_ptr<TCPConnection>> removed;
         {
             std::lock_guard lk2(_connectionsMtx);
-            for (const auto connectionID : _connectionsToRemove)
+            for (const auto connectionID : idsToRemove)
             {
                 auto findIt = _connections.find(connectionID);
                 if (findIt != _connections.end())

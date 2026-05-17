@@ -28,6 +28,11 @@ void TCPClient::OnError(ErrorHandler handler)
 
 void TCPClient::Connect(std::string host, uint16_t port)
 {
+    if (_connected.load())
+    {
+        return;
+    }
+
     Socket socket = TCPConnector::Connect(std::move(host), port);
 
     auto messageHandler = [this](TCPConnection::ID, std::string message)
