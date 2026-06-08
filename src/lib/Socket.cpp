@@ -35,6 +35,11 @@ ssize_t Socket::Send(const std::string_view message)
     return static_cast<ssize_t>(total_sent);
 }
 
+ssize_t Socket::SendSome(const char* buffer, std::size_t size)
+{
+    return send(_ufd.Get(), buffer, size, MSG_NOSIGNAL);
+}
+
 ssize_t Socket::Recv(char* buffer, std::size_t size)
 {
     return recv(_ufd.Get(), buffer, size, 0);

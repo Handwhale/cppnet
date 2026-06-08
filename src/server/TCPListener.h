@@ -36,6 +36,8 @@ class TCPListener
         return _port;
     }
 
+    UniqueFD& GetUFD() { return _ufd; }
+
   private:
     UniqueFD _ufd;
     std::string _address;

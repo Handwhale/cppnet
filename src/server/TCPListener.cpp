@@ -35,7 +35,7 @@ void TCPListener::Open(std::string address, uint16_t port)
     std::error_code lastError;
     for (addrinfo* addr = addrList.get(); addr != nullptr; addr = addr->ai_next)
     {
-        _ufd.Reset(socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol));
+        _ufd.Reset(socket(addr->ai_family, addr->ai_socktype | SOCK_NONBLOCK | SOCK_CLOEXEC, addr->ai_protocol));
         if (!_ufd.IsValid())
         {
             lastError = std::error_code(errno, std::generic_category());
@@ -75,7 +75,7 @@ TCPListener::AcceptResult TCPListener::Accept()
 
     sockaddr_storage client_addr{};
     socklen_t client_addr_size = sizeof(client_addr);
-    auto socket = Socket(UniqueFD(accept(_ufd.Get(), reinterpret_cast<sockaddr*>(&client_addr), &client_addr_size)));
+    auto socket = Socket(UniqueFD(accept4(_ufd.Get(), reinterpret_cast<sockaddr*>(&client_addr), &client_addr_size, SOCK_NONBLOCK | SOCK_CLOEXEC)));
     if (!socket.IsValid())
     {
         return AcceptResult{std::move(socket), errno};

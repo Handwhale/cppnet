@@ -51,7 +51,6 @@ class IOHandler final
     std::string _writeBuffer;
     std::size_t _writeOffset = 0;
     bool _closed = false;
-    bool _closeNotified = false;
 
     MessageHandler _msgHandler;
     ErrorHandler _errorHandler;
