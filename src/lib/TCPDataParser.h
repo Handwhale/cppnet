@@ -25,7 +25,8 @@ class TCPDataParser
     };
 
     ParseResult TryExtractMessages(const char* buffer, std::size_t size);
-    std::string PackMessage(std::string_view message) const;
+    std::string TryPackMessage(std::string_view message) const;
+    bool IsValidMessage(std::string_view message) const;
 
     void Reset();
 

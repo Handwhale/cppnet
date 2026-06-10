@@ -54,5 +54,7 @@ class IOHandler final
 
     MessageHandler _msgHandler;
     ErrorHandler _errorHandler;
+
+    static constexpr std::size_t kMaxPendingBytes = 1024 * 1024; // 1 Mb
 };
 } // namespace cppnet

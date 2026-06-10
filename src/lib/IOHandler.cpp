@@ -1,7 +1,6 @@
 #include "IOHandler.h"
 
 #include <cerrno>
-#include <stdexcept>
 #include <string>
 #include <sys/socket.h>
 #include <system_error>
@@ -141,15 +140,20 @@ IOHandler::IOUpdate IOHandler::QueueMessage(std::string_view message)
         return CurrentUpdate();
     }
 
-    try
-    {
-        _writeBuffer += _parser.PackMessage(message);
-    }
-    catch (const std::length_error&)
+    if (!_parser.IsValidMessage(message))
     {
         _errorHandler(Id(), "Error: Message too long");
         return Close();
     }
+
+    auto packet = _parser.TryPackMessage(message);
+
+    if (_writeBuffer.size() - _writeOffset + packet.size() > kMaxPendingBytes){
+        _errorHandler(Id(), "Error: outgoing buffer overflow");
+        return Close();
+    }
+
+    _writeBuffer += std::move(packet);
 
     return CurrentUpdate();
 }

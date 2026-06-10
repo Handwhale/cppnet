@@ -2,7 +2,6 @@
 
 #include <arpa/inet.h>
 #include <cstring>
-#include <stdexcept>
 #include <utility>
 
 namespace cppnet
@@ -52,11 +51,11 @@ TCPDataParser::ParseResult TCPDataParser::TryExtractMessages(const char* buffer,
     }
 }
 
-std::string TCPDataParser::PackMessage(std::string_view message) const
+std::string TCPDataParser::TryPackMessage(std::string_view message) const
 {
-    if (message.size() > kMaxMessageSize)
+    if (!IsValidMessage(message))
     {
-        throw std::length_error("message is too long");
+        return {};
     }
 
     auto msgSize = htonl(static_cast<std::uint32_t>(message.size()));
@@ -68,6 +67,11 @@ std::string TCPDataParser::PackMessage(std::string_view message) const
     std::memcpy(packet.data() + KHeaderSize, message.data(), message.size());
 
     return packet;
+}
+
+bool TCPDataParser::IsValidMessage(std::string_view message) const
+{
+    return message.size() <= kMaxMessageSize;
 }
 
 void TCPDataParser::Reset()
