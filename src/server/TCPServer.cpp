@@ -1,6 +1,8 @@
 #include "TCPServer.h"
 
+#include "lib/Epoll.h"
 #include "lib/Socket.h"
+#include "server/ITCPServerHandler.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -26,23 +28,57 @@ TCPServer::~TCPServer()
 
 void TCPServer::Start(std::string address, uint16_t port)
 {
+    if (_running.load())
+    {
+
+        LogError("Server is already running");
+        return;
+    }
+
+    if (_epollThread.joinable())
+    {
+        LogError("Server is joinable");
+        return;
+    }
+
     std::cout << "[System] Server start\n";
     _serverSocket.Open(std::move(address), port);
 
     std::cout << "[System] Server is listening on port " << _serverSocket.GetPort() << std::endl;
 
-    _running.store(true);
-    auto serverSocketFD = _serverSocket.GetUFD().Get();
-    auto [it, inserted] =
-        _epollTargetsByFD.emplace(serverSocketFD, std::make_unique<EpollTarget>(EpollTargetType::Server, serverSocketFD, kNullId));
-
-    if (_epoll.Add(serverSocketFD, Epoll::CreateEvents(true), it->second.get()) == -1)
+    _epoll = std::make_unique<Epoll>();
+    if (!_epoll->IsValid())
     {
-        std::cerr << "Epoll error";
-        Stop();
+        LogError("Epoll error", errno);
+        Cleanup();
+        return;
     }
 
-    _epollThread = std::thread(&TCPServer::EventLoop, this);
+    {
+        auto serverSocketFD = _serverSocket.GetUFD().Get();
+        auto [it, inserted] =
+            _epollTargetsByFD.emplace(serverSocketFD, std::make_unique<EpollTarget>(EpollTargetType::Server, serverSocketFD, kNullId));
+
+        if (_epoll->Add(serverSocketFD, Epoll::CreateEvents(true), it->second.get()) == -1)
+        {
+            LogError("Epoll error", errno);
+            Cleanup();
+            return;
+        }
+    }
+    {
+        auto [it, inserted] =
+            _epollTargetsByFD.emplace(_commandsFD.Fd(), std::make_unique<EpollTarget>(EpollTargetType::Command, _commandsFD.Fd(), kNullId));
+
+        if (_epoll->Add(_commandsFD.Fd(), Epoll::CreateEvents(true), it->second.get()) == -1)
+        {
+            LogError("Epoll error", errno);
+            Cleanup();
+            return;
+        }
+    }
+    _running.store(true);
+    _epollThread = std::thread(&TCPServer::EpollLoop, this);
 }
 
 void TCPServer::Join()
@@ -58,8 +94,29 @@ void TCPServer::Stop()
     bool expected = true;
     if (_running.compare_exchange_strong(expected, false))
     {
-        _serverSocket.Reset();
+        _commandsFD.Push();
     }
+}
+
+void TCPServer::Cleanup()
+{
+    for (auto& [id, handler] : _clientHandlers)
+    {
+        handler.Close();
+        _serverHandler->OnDisconnect(*this, id);
+    }
+
+    decltype(_commands) tmpCommands;
+    {
+        std::lock_guard lk(_commandsMtx);
+        _commands.swap(tmpCommands);
+    }
+    decltype(_targetCloseQueue) tmpCloseQueue;
+    _targetCloseQueue.swap(tmpCloseQueue);
+    _clientHandlers.clear();
+    _epollTargetsByFD.clear();
+    _serverSocket.Reset();
+    _epoll.reset();
 }
 
 void TCPServer::AcceptNewClient()
@@ -93,7 +150,7 @@ void TCPServer::AcceptNewClient()
                 }
             }
 
-            std::cerr << "[System] Error: accept failed";
+            LogError("Error: accept failed", acceptResult.error);
             return;
         }
 
@@ -111,7 +168,7 @@ void TCPServer::AcceptNewClient()
         auto [epollIt, inserted] =
             _epollTargetsByFD.emplace(clientFd, std::make_unique<EpollTarget>(EpollTargetType::Client, clientFd, newId));
 
-        if (_epoll.Add(clientFd, Epoll::CreateEvents(true), epollIt->second.get()) == -1)
+        if (_epoll->Add(clientFd, Epoll::CreateEvents(true), epollIt->second.get()) == -1)
         {
             CloseClient(*epollIt->second.get(), false);
             continue;
@@ -120,98 +177,135 @@ void TCPServer::AcceptNewClient()
     }
 }
 
-void TCPServer::EventLoop()
+void TCPServer::EpollLoop()
 {
     const int K_MAX_EPOLL_EVENTS = 64;
     epoll_event epollEvents[K_MAX_EPOLL_EVENTS];
-    std::vector<EpollTarget> handlersToRemove;
 
     while (_running.load())
     {
 
-        int eventsNum = _epoll.Wait(epollEvents, K_MAX_EPOLL_EVENTS, -1);
+        int eventsNum = _epoll->Wait(epollEvents, K_MAX_EPOLL_EVENTS, -1);
         if (eventsNum == -1)
         {
             if (errno == EINTR)
             {
                 continue;
             }
-            // throw std::system_error(errno, std::generic_category());
+
+            LogError("Epoll error", errno);
+
+            Stop();
         }
+
         for (int i = 0; i < eventsNum; i++)
         {
             auto events = epollEvents[i].events;
             EpollTarget* target = static_cast<EpollTarget*>(epollEvents[i].data.ptr);
 
-            if (target->type == EpollTargetType::Server)
+            switch (target->type)
             {
-                auto res = HandleServerEvents(events);
-                if (!res)
-                {
-                    return;
-                }
+            case EpollTargetType::Server:
+            {
+                HandleServerEvents(events);
+                continue;
             }
-            else
+            case EpollTargetType::Client:
             {
-                auto res = HandleClientEvents(*target, events);
-                if (!res)
-                {
-                    handlersToRemove.push_back(*target);
-                }
+                HandleClientEvents(*target, events);
+                continue;
+            }
+            case EpollTargetType::Command:
+            {
+                HandleCommands();
+                continue;
+            }
+            default:
+            {
+                LogError("Unknown epoll target type");
+                Stop();
+            }
             }
         }
-
-        for (auto& target : handlersToRemove)
-        {
-            CloseClient(target);
-        }
-        handlersToRemove.clear();
+        CloseQueuedClients();
     }
+    Cleanup();
 }
 
 void TCPServer::CloseClient(EpollTarget target, bool notify)
 {
-    _epoll.Remove(target.fd);
+    auto findIt = _clientHandlers.find(target.id);
+    if (findIt == _clientHandlers.end())
+    {
+        return;
+    }
+
+    _epoll->Remove(target.fd);
     _epollTargetsByFD.erase(target.fd);
-    const auto erased =_clientHandlers.erase(target.id);
-    if (erased > 0 && notify)
+    _clientHandlers.erase(findIt);
+    if (notify)
     {
         _serverHandler->OnDisconnect(*this, target.id);
     }
 }
 
-bool TCPServer::HandleServerEvents(uint32_t events)
+void TCPServer::QueueForClose(int clientFD)
 {
-    if (events & (EPOLLRDHUP | EPOLLHUP))
+    auto res = FindEpollTarget(clientFD);
+    if (res != nullptr)
     {
-        std::cerr << "[System] Server socket error/hangup\n";
+        _targetCloseQueue.push_back(*(res));
+    }
+}
+
+void TCPServer::QueueForClose(EpollTarget target)
+{
+    _targetCloseQueue.push_back(target);
+}
+
+void TCPServer::CloseQueuedClients()
+{
+    for (auto& target : _targetCloseQueue)
+    {
+        CloseClient(std::move(target));
+    }
+    _targetCloseQueue.clear();
+}
+
+void TCPServer::HandleServerEvents(uint32_t events)
+{
+    if (events & (EPOLLERR | EPOLLHUP))
+    {
+        LogError("Server socket error/hangup", errno);
+
         Stop();
-        return false;
+        return;
     }
 
     if (events & EPOLLIN)
     {
         AcceptNewClient();
     }
-
-    return true;
 }
 
-bool TCPServer::HandleClientEvents(EpollTarget& target, uint32_t events)
+void TCPServer::HandleClientEvents(EpollTarget& target, uint32_t events)
 {
     auto findIt = _clientHandlers.find(target.id);
     if (findIt == _clientHandlers.end())
     {
-        std::cerr << "[System] Client socket not found\n";
-        return false;
+        LogError("Client socket not found");
+
+        QueueForClose(target);
+        return;
     }
     auto& ioHandler = findIt->second;
     IOHandler::IOUpdate update;
 
     if (events & EPOLLERR)
     {
-        std::cerr << "[System] Client socket error\n";
-        return false;
+        LogError("Client socket error", errno);
+        QueueForClose(target);
+        return;
     }
 
     if (events & EPOLLIN)
@@ -224,7 +318,7 @@ bool TCPServer::HandleClientEvents(EpollTarget& target, uint32_t events)
         update = ioHandler.Write();
         if (!update.wantWrite)
         {
-            _epoll.Modify(ioHandler.Fd(), Epoll::CreateEvents(true), _epollTargetsByFD[ioHandler.Fd()].get());
+            _epoll->Modify(ioHandler.Fd(), Epoll::CreateEvents(true), &target);
         }
     }
 
@@ -236,28 +330,99 @@ bool TCPServer::HandleClientEvents(EpollTarget& target, uint32_t events)
 
     if (update.shouldClose)
     {
-        return false;
+        return QueueForClose(target);
     }
-    return true;
 }
 
-void TCPServer::BroadcastAll(std::string_view data)
+void TCPServer::HandleCommands()
+{
+    if (!_commandsFD.Pull())
+    {
+        return;
+    }
+
+    std::queue<Command> commands;
+    {
+        std::lock_guard lk(_commandsMtx);
+        commands.swap(_commands);
+    }
+
+    while (!commands.empty())
+    {
+        HandleCommand(std::move(commands.front()));
+        commands.pop();
+    }
+}
+
+void TCPServer::HandleCommand(Command&& command)
+{
+    switch (command.type)
+    {
+    case Command::Type::BroadcastExcept:
+    {
+        BroadcastExceptImpl(command.data, command.excludeIds);
+        return;
+    }
+    case Command::Type::BroadcastTo:
+    {
+        auto findIt = _clientHandlers.find(command.recipient);
+        if (findIt != _clientHandlers.end())
+        {
+            BroadcastToImpl(command.data, findIt->second);
+        }
+        return;
+    }
+    default:
+    {
+        LogError("Unknown command");
+        return;
+    }
+    }
+}
+
+void TCPServer::BroadcastAll(std::string data)
 {
     BroadcastExcept(data, {});
 }
 
-void TCPServer::BroadcastTo(std::string_view data, IOHandler::ID recipient)
+void TCPServer::BroadcastTo(std::string data, IOHandler::ID recipient)
 {
-    auto it = _clientHandlers.find(recipient);
-    if (it != _clientHandlers.end())
+    Command command;
+    command.data = std::move(data);
+    command.recipient = recipient;
+    command.type = Command::Type::BroadcastTo;
     {
-        BroadcastTo(std::move(data), it->second);
+        std::lock_guard lk(_commandsMtx);
+        if (_running.load())
+        {
+            _commands.push(std::move(command));
+        }
     }
+    _commandsFD.Push();
 }
 
-void TCPServer::BroadcastExcept(std::string_view data, std::vector<IOHandler::ID> excludeIds)
+void TCPServer::BroadcastExcept(std::string data, std::vector<IOHandler::ID> excludeIds)
 {
+    if (!_running.load())
+    {
+        return;
+    }
+    Command command;
+    command.data = std::move(data);
+    command.excludeIds = excludeIds;
+    command.type = Command::Type::BroadcastExcept;
+    {
+        std::lock_guard lk(_commandsMtx);
+        if (_running.load())
+        {
+            _commands.push(std::move(command));
+        }
+    }
+    _commandsFD.Push();
+}
 
+void TCPServer::BroadcastExceptImpl(std::string_view data, std::vector<IOHandler::ID> excludeIds)
+{
     for (auto& [id, ioHandler] : _clientHandlers)
     {
         auto findIt = std::find(excludeIds.begin(), excludeIds.end(), ioHandler.Id());
@@ -265,25 +430,55 @@ void TCPServer::BroadcastExcept(std::string_view data, std::vector<IOHandler::ID
         {
             continue;
         }
-        BroadcastTo(data, ioHandler);
+        BroadcastToImpl(data, ioHandler);
     }
 }
 
-void TCPServer::BroadcastTo(std::string_view data, IOHandler& recipient)
+void TCPServer::BroadcastToImpl(std::string_view data, IOHandler& recipient)
 {
     auto result = recipient.QueueMessage(data);
+
+    auto target = FindEpollTarget(recipient.Fd());
+    if (target == nullptr)
+    {
+        return;
+    }
+
     if (result.wantWrite)
     {
-        if (_epoll.Modify(recipient.Fd(), Epoll::CreateEvents(true, true), _epollTargetsByFD[recipient.Fd()].get()) == -1)
+        if (_epoll->Modify(recipient.Fd(), Epoll::CreateEvents(true, true), target) == -1)
         {
-            std::cerr << "Epoll error";
+            LogError("Epoll error", errno);
             Stop();
         }
     }
 
     if (result.shouldClose)
     {
-        CloseClient(*_epollTargetsByFD[recipient.Fd()].get());
+        QueueForClose(recipient.Fd());
     }
+}
+
+TCPServer::EpollTarget* TCPServer::FindEpollTarget(int fd)
+{
+    auto findIt = _epollTargetsByFD.find(fd);
+    if (findIt != _epollTargetsByFD.end())
+    {
+        return findIt->second.get();
+    }
+    return nullptr;
+}
+
+void TCPServer::LogError(std::string_view message, int error)
+{
+    std::cerr << "[System] " << message;
+
+    if (error != 0)
+    {
+        const auto ec = std::error_code(error, std::generic_category());
+        std::cerr << ": " << ec.message() << " (" << ec.value() << ")";
+    }
+
+    std::cerr << '\n';
 }
 } // namespace cppnet

@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include "lib/TCPConnection.h"
+#include "server/ITCPServerHandler.h"
 #include "server/TCPServer.h"
 
 #include <exception>

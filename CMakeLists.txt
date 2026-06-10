@@ -29,6 +29,7 @@ add_library(cppnet_lib
     src/lib/TCPDataParser.cpp
     src/lib/IOHandler.cpp
     src/lib/Epoll.cpp
+    src/lib/EventFD.cpp
 )
 
 target_include_directories(cppnet_lib

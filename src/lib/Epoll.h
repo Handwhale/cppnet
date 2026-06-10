@@ -22,6 +22,11 @@ class Epoll
     int Remove(int fd);
     int Wait(epoll_event* events, int maxEvents, int timeout = 0);
 
+    bool IsValid() const noexcept
+    {
+        return _epollFD.IsValid();
+    }
+
     static u_int32_t CreateEvents(bool read = false, bool write = false, bool oneshoot = false, bool edgeTriggered = false);
 
   private:
