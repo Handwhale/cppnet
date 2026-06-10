@@ -65,7 +65,28 @@ target_include_directories(cppnet_client
 target_link_libraries(cppnet_client
     PRIVATE cppnet_lib
 )
+
+add_subdirectory(third_party/googletest)
+
+enable_testing()
+
+add_executable(cppnet_tests
+    tests/EventFDTests.cpp
+    tests/IOHandlerTests.cpp
+    tests/TCPDataParserTests.cpp
+    tests/UniqueFDTests.cpp
+)
+
+target_link_libraries(cppnet_tests
+    PRIVATE
+        cppnet_lib
+        gtest_main
+)
+
+include(GoogleTest)
+gtest_discover_tests(cppnet_tests)
+
 enable_project_warnings(cppnet_lib)
 enable_project_warnings(cppnet_server)
 enable_project_warnings(cppnet_client)
-
+enable_project_warnings(cppnet_tests)
