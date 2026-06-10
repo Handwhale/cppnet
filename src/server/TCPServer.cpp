@@ -14,7 +14,7 @@
 
 namespace cppnet
 {
-TCPServer::TCPServer(std::unique_ptr<ITCPServerHandler>&& handler) : _serverHandler(std::move(handler)) {}
+TCPServer::TCPServer(std::unique_ptr<ITCPHandler<TCPServer>>&& handler) : _serverHandler(std::move(handler)) {}
 
 TCPServer::~TCPServer()
 {
@@ -105,6 +105,7 @@ void TCPServer::Cleanup()
         handler.Close();
         _serverHandler->OnDisconnect(*this, id);
     }
+    _serverHandler.reset();
 
     decltype(_commands) tmpCommands;
     {

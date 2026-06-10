@@ -4,6 +4,7 @@
 #include "lib/IOHandler.h"
 
 #include "server/TCPListener.h"
+#include "lib/ITCPHandler.h"
 
 #include <atomic>
 #include <mutex>
@@ -15,7 +16,6 @@
 namespace cppnet
 {
 class Epoll;
-class ITCPServerHandler;
 
 class TCPServer
 {
@@ -50,7 +50,7 @@ class TCPServer
     };
 
   public:
-    explicit TCPServer(std::unique_ptr<ITCPServerHandler>&& handler);
+    explicit TCPServer(std::unique_ptr<ITCPHandler<TCPServer>>&& handler);
     ~TCPServer();
 
     void Start(std::string address, uint16_t port);
@@ -92,7 +92,7 @@ class TCPServer
     std::vector<EpollTarget> _targetCloseQueue;
 
     std::thread _epollThread;
-    std::unique_ptr<ITCPServerHandler> _serverHandler;
+    std::unique_ptr<ITCPHandler<TCPServer>> _serverHandler;
 
     EventFD _commandsFD;
     std::mutex _commandsMtx;
