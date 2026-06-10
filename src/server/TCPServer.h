@@ -80,8 +80,6 @@ class TCPServer
 
     EpollTarget* FindEpollTarget(int fd);
 
-    void LogError(std::string_view message, int error = 0);
-
   private:
     std::atomic_bool _running = false;
 

@@ -2,11 +2,10 @@
 
 #include "lib/Epoll.h"
 #include "lib/Socket.h"
-#include "server/ITCPServerHandler.h"
+#include "lib/Logger.h"
 
 #include <algorithm>
 #include <cerrno>
-#include <iostream>
 #include <memory>
 #include <string>
 #include <utility>
@@ -41,10 +40,10 @@ void TCPServer::Start(std::string address, uint16_t port)
         return;
     }
 
-    std::cout << "[System] Server start\n";
+    LogInfo("Server start");
     _serverSocket.Open(std::move(address), port);
 
-    std::cout << "[System] Server is listening on port " << _serverSocket.GetPort() << std::endl;
+    LogInfo("Server is listening on port " + std::to_string(_serverSocket.GetPort()));
 
     _epoll = std::make_unique<Epoll>();
     if (!_epoll->IsValid())
@@ -468,18 +467,5 @@ TCPServer::EpollTarget* TCPServer::FindEpollTarget(int fd)
         return findIt->second.get();
     }
     return nullptr;
-}
-
-void TCPServer::LogError(std::string_view message, int error)
-{
-    std::cerr << "[System] " << message;
-
-    if (error != 0)
-    {
-        const auto ec = std::error_code(error, std::generic_category());
-        std::cerr << ": " << ec.message() << " (" << ec.value() << ")";
-    }
-
-    std::cerr << '\n';
 }
 } // namespace cppnet

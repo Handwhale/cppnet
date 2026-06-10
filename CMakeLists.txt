@@ -30,6 +30,7 @@ add_library(cppnet_lib
     src/lib/IOHandler.cpp
     src/lib/Epoll.cpp
     src/lib/EventFD.cpp
+    src/lib/Logger.cpp
 )
 
 target_include_directories(cppnet_lib

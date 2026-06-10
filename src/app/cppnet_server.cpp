@@ -1,7 +1,7 @@
 #include <iostream>
 
-#include "lib/TCPConnection.h"
-#include "server/ITCPServerHandler.h"
+#include "lib/Logger.h"
+#include "lib/ITCPHandler.h"
 #include "server/TCPServer.h"
 
 #include <exception>
@@ -9,33 +9,32 @@
 
 namespace cppnet
 {
-class ChatHandler : public ITCPServerHandler
+class ChatHandler : public ITCPHandler<TCPServer>
 {
   public:
-    void OnConnect(TCPServer& server, TCPConnection::ID id) override
+    void OnConnect(TCPServer& server, IOHandler::ID id) override
     {
-        auto message = "[System] Client " + std::to_string(id) + " connected";
-        std::cout << message << '\n';
-        server.BroadcastAll(message);
+        auto message = "Client " + std::to_string(id) + " connected";
+        LogInfo(message);
+        server.BroadcastAll(std::move(message));
     }
 
-    void OnDisconnect(TCPServer& server, TCPConnection::ID id) override
+    void OnDisconnect(TCPServer& server, IOHandler::ID id) override
     {
-        auto message = "[System] Client " + std::to_string(id) + " disconnected";
-        std::cout << message << '\n';
-        server.BroadcastAll(message);
+        auto message = "Client " + std::to_string(id) + " disconnected";
+        LogInfo(message);
+        server.BroadcastAll(std::move(message));
     }
 
-    void OnMessage(TCPServer& server, TCPConnection::ID id, std::string message) override
+    void OnMessage(TCPServer& server, IOHandler::ID id, std::string message) override
     {
         auto formatedMessage = "Client " + std::to_string(id) + ": " + message;
         server.BroadcastExcept(formatedMessage, {id});
     }
 
-    void OnError(TCPServer& /*server*/, TCPConnection::ID /*id*/, std::string error) override
+    void OnError(TCPServer& /*server*/, IOHandler::ID /*id*/, std::string error) override
     {
-
-        std::cout << "[System] Error: " << error << '\n';
+        LogError(error);
     }
 };
 } // namespace cppnet
@@ -50,7 +49,7 @@ int main(int, char**)
     }
     catch (const std::exception& e)
     {
-        std::cerr << "Fatal error: " << e.what() << '\n';
+        LogError(std::string("Fatal error: ") + e.what());
         return 1;
     }
     server.Join();
