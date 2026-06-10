@@ -1,3 +1,4 @@
+[![CI](https://github.com/Handwhale/cppnet/actions/workflows/ci.yml/badge.svg)](https://github.com/Handwhale/cppnet/actions/workflows/ci.yml)
 # cppnet
 
 `cppnet` is a small C++ TCP networking project built around Linux `epoll`.
