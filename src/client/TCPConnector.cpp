@@ -1,6 +1,7 @@
 #include "TCPConnector.h"
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <memory>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -8,6 +9,17 @@
 
 namespace cppnet
 {
+int SetNonblock(int fd)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1)
+    {
+        return flags;
+    }
+
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
 Socket TCPConnector::Connect(std::string host, uint16_t port)
 {
     addrinfo hints{};
@@ -28,20 +40,25 @@ Socket TCPConnector::Connect(std::string host, uint16_t port)
     std::error_code lastError;
     for (addrinfo* addr = addrList.get(); addr != nullptr; addr = addr->ai_next)
     {
-        UniqueFD clientFD(socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol));
+        UniqueFD clientFD(socket(addr->ai_family, addr->ai_socktype | SOCK_CLOEXEC, addr->ai_protocol));
         if (!clientFD.IsValid())
         {
             lastError = std::error_code(errno, std::generic_category());
             continue;
         }
 
-        if (connect(clientFD.Get(), addr->ai_addr, addr->ai_addrlen) == 0)
+        if (connect(clientFD.Get(), addr->ai_addr, addr->ai_addrlen) != 0)
         {
-            return Socket(std::move(clientFD));
+            lastError = std::error_code(errno, std::generic_category());
+            continue;
         }
-        lastError = std::error_code(errno, std::generic_category());
+        if (SetNonblock(clientFD.Get()) != 0)
+        {
+            lastError = std::error_code(errno, std::generic_category());
+            continue;
+        }
+        return Socket(std::move(clientFD));
     }
-
     throw std::system_error(lastError, "connect failed");
 }
 } // namespace cppnet

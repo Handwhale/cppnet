@@ -104,7 +104,6 @@ void TCPServer::Cleanup()
         handler.Close();
         _serverHandler->OnDisconnect(*this, id);
     }
-    _serverHandler.reset();
 
     decltype(_commands) tmpCommands;
     {

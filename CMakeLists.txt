@@ -23,9 +23,7 @@ function(enable_project_warnings target_name)
 endfunction()
 
 add_library(cppnet_lib
-    src/lib/MessageProcessor.cpp
     src/lib/Socket.cpp
-    src/lib/TCPConnection.cpp
     src/lib/TCPDataParser.cpp
     src/lib/IOHandler.cpp
     src/lib/Epoll.cpp

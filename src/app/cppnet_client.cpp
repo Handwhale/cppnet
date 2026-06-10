@@ -1,43 +1,50 @@
+#include "client/TCPClient.h"
+#include <lib/Logger.h>
+
 #include <atomic>
 #include <iostream>
-#include <mutex>
 #include <string>
 
-#include "client/TCPClient.h"
+namespace cppnet
+{
+class ClientHandler : public ITCPHandler<TCPClient>
+{
+  public:
+    ClientHandler(std::atomic_bool& running) : _running(running) {}
+
+    void OnConnect(TCPClient&, IOHandler::ID) override
+    {
+        LogInfo("Connected to server");
+    }
+
+    void OnDisconnect(TCPClient&, IOHandler::ID) override
+    {
+        LogInfo("Disconnected from server");
+        _running.store(false);
+    }
+
+    void OnMessage(TCPClient&, IOHandler::ID, std::string message) override
+    {
+        LogInfo(message);
+    }
+
+    void OnError(TCPClient& /*server*/, IOHandler::ID /*id*/, std::string error) override
+    {
+        LogError(error);
+    }
+
+  private:
+    std::atomic_bool& _running;
+};
+} // namespace cppnet
 
 int main()
 {
     using namespace cppnet;
 
-    std::mutex terminalMutex;
     std::atomic_bool running{true};
 
-    TCPClient client;
-
-    client.OnMessage(
-        [&](std::string message)
-        {
-            std::lock_guard lock(terminalMutex);
-            std::cout << "\n" << message << '\n';
-        });
-
-    client.OnDisconnect(
-        [&]()
-        {
-            {
-                std::lock_guard lock(terminalMutex);
-                std::cout << "\n[System] Disconnected from server\n";
-            }
-
-            running.store(false);
-        });
-
-    client.OnError(
-        [&](std::string error)
-        {
-            std::lock_guard lock(terminalMutex);
-            std::cout << "\n[System] " << error << "\n";
-        });
+    TCPClient client(std::make_unique<ClientHandler>(running));
 
     try
     {
@@ -45,21 +52,14 @@ int main()
     }
     catch (const std::exception& ex)
     {
-        std::cerr << "[System] Connect failed: " << ex.what() << "\n";
+        LogError(std::string("Connect failed: ") + ex.what());
         return 1;
     }
-
-    std::cout << "[System] Connected to server\n";
 
     std::string line;
 
     while (running.load())
     {
-        {
-            std::lock_guard lock(terminalMutex);
-            std::cout << "> " << std::flush;
-        }
-
         if (!std::getline(std::cin, line))
         {
             break;
@@ -74,13 +74,7 @@ int main()
         {
             break;
         }
-
-        if (!client.Send(line))
-        {
-            std::lock_guard lock(terminalMutex);
-            std::cout << "\n[System] Send failed\n";
-            break;
-        }
+        client.Send(line);
     }
 
     client.Disconnect();

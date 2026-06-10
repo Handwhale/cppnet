@@ -1,5 +1,3 @@
-#include <iostream>
-
 #include "lib/Logger.h"
 #include "lib/ITCPHandler.h"
 #include "server/TCPServer.h"
@@ -16,7 +14,7 @@ class ChatHandler : public ITCPHandler<TCPServer>
     {
         auto message = "Client " + std::to_string(id) + " connected";
         LogInfo(message);
-        server.BroadcastAll(std::move(message));
+        server.BroadcastExcept(std::move(message), {id});
     }
 
     void OnDisconnect(TCPServer& server, IOHandler::ID id) override
