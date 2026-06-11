@@ -56,6 +56,7 @@ class TCPServer
     void Start(std::string address, uint16_t port);
     void Join();
     void Stop();
+    uint16_t GetPort() const noexcept;
 
     void BroadcastAll(std::string data);
     void BroadcastTo(std::string data, IOHandler::ID recipient);

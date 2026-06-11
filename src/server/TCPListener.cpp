@@ -61,6 +61,25 @@ void TCPListener::Open(std::string address, uint16_t port)
             continue;
         }
 
+        sockaddr_storage boundAddr{};
+        socklen_t boundAddrLen = sizeof(boundAddr);
+        if (getsockname(_ufd.Get(), reinterpret_cast<sockaddr*>(&boundAddr), &boundAddrLen) == -1)
+        {
+            lastError = std::error_code(errno, std::generic_category());
+            continue;
+        }
+
+        if (boundAddr.ss_family == AF_INET)
+        {
+            const auto* inetAddr = reinterpret_cast<const sockaddr_in*>(&boundAddr);
+            _port = ntohs(inetAddr->sin_port);
+        }
+        else if (boundAddr.ss_family == AF_INET6)
+        {
+            const auto* inet6Addr = reinterpret_cast<const sockaddr_in6*>(&boundAddr);
+            _port = ntohs(inet6Addr->sin6_port);
+        }
+
         return;
     }
     throw std::system_error(lastError, "listen failed");

@@ -97,6 +97,11 @@ void TCPServer::Stop()
     }
 }
 
+uint16_t TCPServer::GetPort() const noexcept
+{
+    return _serverSocket.GetPort();
+}
+
 void TCPServer::Cleanup()
 {
     for (auto& [id, handler] : _clientHandlers)

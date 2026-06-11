@@ -71,9 +71,14 @@ add_subdirectory(third_party/googletest)
 enable_testing()
 
 add_executable(cppnet_tests
+    src/client/TCPClient.cpp
+    src/client/TCPConnector.cpp
+    src/server/TCPListener.cpp
+    src/server/TCPServer.cpp
     tests/EventFDTests.cpp
     tests/IOHandlerTests.cpp
     tests/TCPDataParserTests.cpp
+    tests/TCPIntegrationTests.cpp
     tests/UniqueFDTests.cpp
 )
 
