@@ -102,7 +102,7 @@ IOHandler::IOUpdate IOHandler::Write()
     {
         const auto* data = _writeBuffer.data() + _writeOffset;
         const auto size = _writeBuffer.size() - _writeOffset;
-        const ssize_t bytesSent = _socket.SendSome(data, size);
+        const ssize_t bytesSent = _socket.Send(data, size);
         if (bytesSent > 0)
         {
             _writeOffset += static_cast<std::size_t>(bytesSent);

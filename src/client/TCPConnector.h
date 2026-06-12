@@ -2,6 +2,7 @@
 
 #include "lib/Socket.h"
 #include <stdint.h>
+#include <string>
 
 namespace cppnet
 {

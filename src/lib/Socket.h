@@ -1,6 +1,6 @@
 #pragma once
 
-#include <string_view>
+#include <cstddef>
 #include <sys/socket.h>
 
 #include "UniqueFD.h"
@@ -18,8 +18,7 @@ class Socket
     Socket(Socket&&) noexcept = default;
     Socket& operator=(Socket&&) noexcept = default;
 
-    ssize_t Send(const std::string_view message);
-    ssize_t SendSome(const char* buffer, std::size_t size);
+    ssize_t Send(const char* buffer, std::size_t size);
     ssize_t Recv(char* buffer, std::size_t size);
     void Shutdown();
     bool IsValid() const;
